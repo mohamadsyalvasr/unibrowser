@@ -32,6 +32,8 @@ This tool consists of:
 * Simple and fast backend (FastAPI + SQLite)
 * All data stays **local** on your machine
 * Great for users with many browsers / many devices
+* **Secure HTTPS connection** with self-signed certificates
+* **Bearer token authentication** for API requests
 
 ---
 
@@ -41,7 +43,11 @@ This tool consists of:
 unibrowse/
 │
 ├─ backend/
-│   └─ main.py          # FastAPI server + SQLite
+│   ├─ main.py              # FastAPI server + SQLite
+│   ├─ requirements.txt     # Python dependencies
+│   ├─ .env.example         # Environment configuration template
+│   ├─ cert.pem             # Auto-generated HTTPS certificate
+│   └─ key.pem              # Auto-generated HTTPS private key
 │
 ├─ chrome-extension/
 │   ├─ manifest.json
@@ -49,7 +55,7 @@ unibrowse/
 │   ├─ popup.html
 │   └─ popup.js
 │
-└─ firefox-extension/
+└─ firefox-sync-extension/
     ├─ manifest.json
     ├─ background.js
     ├─ popup.html
@@ -70,21 +76,37 @@ Below are the complete steps to run everything locally.
 
 ```bash
 cd backend
-pip install fastapi uvicorn
+pip install -r requirements.txt
+```
+
+### Configure API Token (Optional)
+
+Copy `.env.example` to `.env` and customize the token:
+
+```bash
+cp .env.example .env
+# Edit .env and set UNIBROWSER_API_TOKEN to a strong random value
+```
+
+Then run with environment variable:
+
+```bash
+export UNIBROWSER_API_TOKEN="your-secure-token-here"
+python main.py
 ```
 
 ### Run server
 
 ```bash
 python main.py
-# or
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+The server automatically generates self-signed HTTPS certificates on first run.
 
 Access:
 
-* Swagger Docs → [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-* View bookmarks → [http://127.0.0.1:8000/api/bookmarks](http://127.0.0.1:8000/api/bookmarks)
+* Swagger Docs → [https://127.0.0.1:8000/docs](https://127.0.0.1:8000/docs) (ignore certificate warning)
+* View bookmarks → [https://127.0.0.1:8000/api/bookmarks](https://127.0.0.1:8000/api/bookmarks)
 
 ---
 
@@ -116,7 +138,7 @@ Access:
 
 1. Open Firefox → `about:debugging#/runtime/this-firefox`
 2. Click **Load Temporary Add-on…**
-3. Select `manifest.json` from the **firefox-extension/** folder
+3. Select `manifest.json` from the **firefox-sync-extension/** folder
 
 ### Usage
 
@@ -127,6 +149,8 @@ Same as Chrome.
 # 📝 API Endpoint
 
 ### POST /api/sync/bookmarks
+
+Requires `Authorization: Bearer <token>` header.
 
 Payload:
 
@@ -193,21 +217,38 @@ The sync interval is stored in browser storage to persist settings.
 
 ---
 
+# 🔒 Security
+
+* **HTTPS with Self-Signed Certificates** — All communication is encrypted
+* **Bearer Token Authentication** — API requests require valid token in `Authorization` header
+* **Token Configuration** — Set custom token via `UNIBROWSER_API_TOKEN` environment variable
+* **Local-Only** — Backend runs on `127.0.0.1` (localhost only)
+
+---
+
 # 🛠 Development Notes
 
-### Change API URL
+### Change API URL or Token
 
-If the backend runs on a different port:
+If the backend runs on a different port or you changed the token:
 
+**Chrome Extension** (`chrome-extension/background.js`):
 ```js
-const API_URL = "http://localhost:5000/api/sync/bookmarks";
+const API_URL = "https://127.0.0.1:8000/api/sync/bookmarks";
+const API_TOKEN = "your-token-here";
+```
+
+**Firefox Extension** (`firefox-sync-extension/background.js`):
+```js
+const API_URL = "https://127.0.0.1:8000/api/sync/bookmarks";
+const API_TOKEN = "your-token-here";
 ```
 
 ### Build extension
 
 ```bash
 zip -r chrome-extension.zip chrome-extension/
-zip -r firefox-extension.zip firefox-extension/
+zip -r firefox-extension.zip firefox-sync-extension/
 ```
 
 ---
