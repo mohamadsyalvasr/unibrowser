@@ -1,12 +1,17 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import sqlite3
 from datetime import datetime
 import threading
+import os
+import ssl
 
 DB_PATH = "sync_browser.db"
+API_TOKEN = os.getenv("UNIBROWSER_API_TOKEN", "unibrowser-local-token-2024")
+CERT_FILE = "cert.pem"
+KEY_FILE = "key.pem"
 
 db_lock = threading.Lock()
 
@@ -63,11 +68,19 @@ app = FastAPI(title="Local Browser Sync")
 # CORS biar bisa diakses dari extension
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # kalau mau lebih ketat nanti bisa dibatasi
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def verify_token(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+    token = authorization[7:]
+    if token != API_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid token")
+    return token
 
 @app.on_event("startup")
 def on_startup():
@@ -98,7 +111,9 @@ def get_or_create_browser_id(name: str, device_name: str, profile_name: str) -> 
         return cur.lastrowid
 
 @app.post("/api/sync/bookmarks")
-def sync_bookmarks(payload: SyncBookmarksPayload):
+def sync_bookmarks(payload: SyncBookmarksPayload, authorization: Optional[str] = Header(None)):
+    verify_token(authorization)
+    
     browser_id = get_or_create_browser_id(
         payload.browser_name,
         payload.device_name,
@@ -159,7 +174,9 @@ def sync_bookmarks(payload: SyncBookmarksPayload):
     }
 
 @app.get("/api/bookmarks")
-def list_bookmarks():
+def list_bookmarks(authorization: Optional[str] = Header(None)):
+    verify_token(authorization)
+    
     with db_lock:
         conn = get_conn()
         cur = conn.cursor()
@@ -175,6 +192,78 @@ def list_bookmarks():
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 
+def generate_self_signed_cert():
+    """Generate self-signed certificate if not exists"""
+    if os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
+        return
+    
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives import serialization
+    from datetime import timedelta
+    import ipaddress
+    
+    # Generate private key
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+    
+    # Build certificate
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, u"US"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Local"),
+        x509.NameAttribute(NameOID.LOCALITY_NAME, u"Local"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"UniBrowser"),
+        x509.NameAttribute(NameOID.COMMON_NAME, u"127.0.0.1"),
+    ])
+    
+    cert = x509.CertificateBuilder().subject_name(
+        subject
+    ).issuer_name(
+        issuer
+    ).public_key(
+        private_key.public_key()
+    ).serial_number(
+        x509.random_serial_number()
+    ).not_valid_before(
+        datetime.utcnow()
+    ).not_valid_after(
+        datetime.utcnow() + timedelta(days=365)
+    ).add_extension(
+        x509.SubjectAlternativeName([
+            x509.IPAddress(ipaddress.IPv4Address(u"127.0.0.1")),
+            x509.DNSName(u"localhost"),
+        ]),
+        critical=False,
+    ).sign(private_key, hashes.SHA256(), default_backend())
+    
+    # Write certificate
+    with open(CERT_FILE, "wb") as f:
+        f.write(cert.public_bytes(serialization.Encoding.PEM))
+    
+    # Write private key
+    with open(KEY_FILE, "wb") as f:
+        f.write(private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        ))
+    
+    print(f"Generated self-signed certificate: {CERT_FILE}, {KEY_FILE}")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    generate_self_signed_cert()
+    uvicorn.run(
+        "main:app",
+        host="127.0.0.1",
+        port=8000,
+        ssl_keyfile=KEY_FILE,
+        ssl_certfile=CERT_FILE,
+        reload=True
+    )

@@ -1,4 +1,5 @@
-const API_URL = "http://127.0.0.1:8000/api/sync/bookmarks";
+const API_URL = "https://127.0.0.1:8000/api/sync/bookmarks";
+const API_TOKEN = "unibrowser-local-token-2024";
 const AUTO_SYNC_ALARM_NAME = "autoSyncBookmarks";
 const DEFAULT_INTERVAL_MIN = 15;
 
@@ -44,7 +45,8 @@ async function syncBookmarks(meta) {
   const resp = await fetch(API_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${API_TOKEN}`
     },
     body: JSON.stringify(payload)
   });
@@ -59,7 +61,6 @@ async function syncBookmarks(meta) {
   return data;
 }
 
-// Atur alarm auto sync berdasarkan setting yang tersimpan
 function setupAutoSyncFromStorage() {
   chrome.storage.sync.get(
     ["auto_sync_enabled", "auto_sync_interval"],
@@ -86,7 +87,6 @@ function setupAutoSyncFromStorage() {
   );
 }
 
-// Saat alarm berbunyi → auto sync
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === AUTO_SYNC_ALARM_NAME) {
     console.log("Alarm auto sync fired, mulai sync...");
@@ -112,7 +112,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// Listener pesan dari popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) return;
 
@@ -126,17 +125,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.error(err);
         sendResponse({ ok: false, error: err.message });
       });
-    return true; // async
+    return true;
   }
 
   if (message.type === "UPDATE_SETTINGS") {
     setupAutoSyncFromStorage();
     sendResponse({ ok: true });
-    return; // sync response ok
+    return;
   }
 });
 
-// Inisialisasi saat extension di-install atau browser start
 chrome.runtime.onInstalled.addListener(() => {
   setupAutoSyncFromStorage();
 });

@@ -1,8 +1,7 @@
-const API_URL = "http://127.0.0.1:8000/api/sync/bookmarks";
+const API_URL = "https://127.0.0.1:8000/api/sync/bookmarks";
+const API_TOKEN = "unibrowser-local-token-2024";
 const AUTO_SYNC_ALARM_NAME = "autoSyncBookmarks";
 const DEFAULT_INTERVAL_MIN = 15;
-
-// --- Helper ambil bookmarks ---
 
 async function collectBookmarks() {
   const tree = await browser.bookmarks.getTree();
@@ -33,8 +32,6 @@ async function collectBookmarks() {
   return items;
 }
 
-// --- Sync ke backend ---
-
 async function syncBookmarks(meta) {
   const bookmarks = await collectBookmarks();
 
@@ -48,7 +45,8 @@ async function syncBookmarks(meta) {
   const resp = await fetch(API_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${API_TOKEN}`
     },
     body: JSON.stringify(payload)
   });
@@ -62,8 +60,6 @@ async function syncBookmarks(meta) {
   console.log("Sync result:", data);
   return data;
 }
-
-// --- Setup auto sync berdasarkan storage ---
 
 async function setupAutoSyncFromStorage() {
   const data = await browser.storage.local.get([
@@ -91,8 +87,6 @@ async function setupAutoSyncFromStorage() {
   );
 }
 
-// --- Alarm handler: jalan tiap X menit ---
-
 browser.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== AUTO_SYNC_ALARM_NAME) return;
 
@@ -118,8 +112,6 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-// --- Listener pesan dari popup ---
-
 browser.runtime.onMessage.addListener((message) => {
   if (!message || !message.type) return;
 
@@ -137,8 +129,6 @@ browser.runtime.onMessage.addListener((message) => {
     return setupAutoSyncFromStorage().then(() => ({ ok: true }));
   }
 });
-
-// --- Inisialisasi saat di-install & browser start ---
 
 browser.runtime.onInstalled.addListener(() => {
   setupAutoSyncFromStorage();
